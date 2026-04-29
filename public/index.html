@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ISI TimeClock</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #F7F6F3; --card: #FFFFFF; --border: #E5E2DC;
+      --text: #1A1917; --muted: #8B8680;
+      --accent: #1D4ED8; --green: #059669; --red: #DC2626; --amber: #D97706;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh; }
+    button { font-family: inherit; cursor: pointer; }
+    input, select { font-family: inherit; }
+    input::placeholder { color: #C0BDB8; }
+
+    /* Header */
+    header {
+      background: #1A1917; color: #F7F6F3; height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 15px; letter-spacing: .05em; }
+    nav { display: flex; gap: 2px; }
+    nav button {
+      background: transparent; color: #8B8680; border: none;
+      border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 500;
+      transition: all .12s;
+    }
+    nav button.active { background: #F7F6F3; color: var(--text); }
+    #clock-display { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8B8680; }
+    #export-btn {
+      background: var(--accent); color: #fff; border: none;
+      border-radius: 5px; padding: 6px 14px; font-size: 12px; font-weight: 600;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed; top: 20px; right: 20px; z-index: 9999;
+      padding: 12px 20px; border-radius: 8px; color: #fff;
+      font-size: 14px; font-weight: 500; display: none;
+      box-shadow: 0 4px 24px rgba(0,0,0,.2);
+      animation: slideIn .2s ease;
+    }
+    @keyframes slideIn { from { transform: translateX(20px); opacity:0 } to { transform:none; opacity:1 } }
+    @keyframes popIn   { from { transform: scale(.97); opacity:0 } to { transform:none; opacity:1 } }
+
+    /* Main */
+    main { max-width: 1000px; margin: 0 auto; padding: 32px 24px; }
+
+    /* Views */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* Stats grid */
+    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; }
+    .stat-label { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+    .stat-val { font-family: 'IBM Plex Mono', monospace; font-size: 34px; font-weight: 600; }
+
+    /* Search box */
+    .search-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    .search-box h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .search-box p { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    .search-wrap { position: relative; }
+    .search-wrap input {
+      width: 100%; padding: 13px 16px; font-size: 15px;
+      border: 1.5px solid var(--border); border-radius: 8px; outline: none;
+      font-family: 'IBM Plex Mono', monospace; background: #FAFAF9;
+      transition: border-color .15s;
+    }
+    .search-wrap input:focus { border-color: var(--accent); }
+    .search-wrap button {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      background: var(--accent); color: #fff; border: none;
+      border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: 600;
+    }
+
+    /* Dropdown */
+    #search-dropdown { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 6px; display: none; }
+    .dropdown-row {
+      display: flex; align-items: center; gap: 12px; padding: 11px 16px;
+      cursor: pointer; background: var(--card); border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    .dropdown-row:hover { background: #F5F4F1; }
+    .dropdown-row:last-child { border-bottom: none; }
+
+    /* Found card */
+    #found-card {
+      background: var(--card); border-radius: 14px; padding: 24px;
+      display: none; align-items: center; gap: 20px;
+      animation: popIn .18s ease; margin-bottom: 20px;
+    }
+    #found-card.active { display: flex; }
+
+    /* On duty grid */
+    .on-duty-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 10px; margin-top: 12px; }
+    .duty-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer;
+      transition: background .1s;
+    }
+    .duty-card:hover { background: #F5F4F1; }
+
+    /* Roster table */
+    .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--card); }
+    .table-header {
+      display: grid; padding: 10px 18px; background: #F0EEE9;
+      font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .07em; text-transform: uppercase;
+    }
+    .table-row { display: grid; padding: 12px 18px; border-top: 1px solid var(--border); align-items: center; font-size: 13px; }
+    .table-header.roster-cols, .table-row.roster-cols { grid-template-columns: 90px 1fr 180px 100px; }
+    .table-header.hist-cols,   .table-row.hist-cols   { grid-template-columns: 90px 1fr 90px 80px 80px 80px; }
+
+    /* Avatar */
+    .avatar {
+      border-radius: 22%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+    }
+
+    /* Upload zone */
+    #drop-zone {
+      border: 2px dashed var(--border); border-radius: 12px; padding: 52px 32px;
+      text-align: center; cursor: pointer; background: #FAFAF9; transition: all .15s;
+    }
+    #drop-zone.drag-over { border-color: var(--accent); background: #EFF6FF; }
+    #drop-zone .icon { font-size: 40px; margin-bottom: 12px; }
+    #drop-zone h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    #drop-zone p { font-size: 13px; color: var(--muted); }
+
+    /* Preview table */
+    #preview-section { display: none; }
+    .hint-box { background: #F0EEE9; border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.8; }
+    .hint-box strong { color: var(--text); }
+    code { font-family: 'IBM Plex Mono', monospace; font-size: 11px; background: #E8E5E0; padding: 2px 6px; border-radius: 4px; }
+
+    /* Form */
+    .form-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px; max-width: 480px; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 6px; letter-spacing: .04em; text-transform: uppercase; }
+    .form-group input {
+      width: 100%; padding: 11px 14px; font-size: 14px;
+      border: 1.5px solid var(--border); border-radius: 7px; outline: none; background: #FAFAF9;
+      transition: border-color .15s;
+    }
+    .form-group input:focus { border-color: var(--accent); }
+    .form-group input.mono { font-family: 'IBM Plex Mono', monospace; }
+    .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+    .btn { border: none; border-radius: 7px; padding: 12px 20px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: var(--accent); color: #fff; flex: 2; }
+    .btn-secondary { background: none; border: 1px solid var(--border); color: var(--muted); flex: 1; }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-red   { background: var(--red);   color: #fff; }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff4; border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Section title */
+    .section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .section-title h2 { font-size: 20px; font-weight: 600; }
+    .btn-group { display: flex; gap: 10px; }
+
+    /* Misc */
+    .empty { text-align: center; padding: 80px; color: var(--muted); font-size: 13px; }
+    .empty a { color: var(--accent); cursor: pointer; }
+    .col-green { color: var(--green); }
+    .col-red   { color: var(--red); }
+    .col-amber { color: var(--amber); }
+    .col-muted { color: var(--muted); }
+    .mono { font-family: 'IBM Plex Mono', monospace; }
+    .fw600 { font-weight: 600; }
+    .fs12 { font-size: 12px; }
+    .fs11 { font-size: 11px; }
+    .connecting { text-align: center; padding: 60px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<header>
+  <span class="logo">◈ ISI TIMECLOCK</span>
+  <nav>
+    <button class="active" onclick="showView('clock')">Clock In/Out</button>
+    <button onclick="showView('roster')">Roster</button>
+    <button onclick="showView('upload')">↑ Upload Roster</button>
+    <button onclick="showView('history')">History</button>
+    <button onclick="showView('add')">+ Add Officer</button>
+  </nav>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="clock-display"></span>
+    <button id="export-btn" onclick="exportISolved()">↓ Export iSolved</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- CLOCK IN/OUT -->
+  <div id="view-clock" class="view active">
+    <div class="stats">
+      <div class="stat-card"><div class="stat-label">Total Officers</div><div class="stat-val" id="stat-total">—</div></div>
+      <div class="stat-card"><div class="stat-label">On Duty Now</div><div class="stat-val col-green" id="stat-in">—</div></div>
+      <div class="stat-card"><div class="stat-label">Off Duty</div><div class="stat-val col-muted" id="stat-out">—</div></div>
+    </div>
+
+    <div class="search-box">
+      <h3>Scan ID Badge or Search Officer</h3>
+      <p>Point barcode scanner at the ID card for instant lookup, or type an officer # or name below.</p>
+      <div class="search-wrap">
+        <input id="search-input" type="text" placeholder="Officer # or name… press Enter" autofocus
+          oninput="onSearchInput()" onkeydown="if(event.key==='Enter') doSearch()" />
+        <button onclick="doSearch()" id="search-btn" style="display:none">Search</button>
+      </div>
+      <div id="search-dropdown"></div>
+    </div>
+
+    <div id="found-card">
+      <div id="found-avatar" class="avatar" style="width:60px;height:60px;font-size:20px"></div>
+      <div style="flex:1">
+        <div id="found-name" style="font-size:20px;font-weight:600"></div>
+        <div id="found-sub" style="font-size:13px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:2px"></div>
+        <div id="found-today" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" onclick="clearFound()">Cancel</button>
+        <button class="btn" id="clock-action-btn" style="min-width:150px" onclick="doClockAction()"></button>
+      </div>
+    </div>
+
+    <div id="on-duty-section" style="display:none">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">Currently On Duty</div>
+      <div class="on-duty-grid" id="on-duty-grid"></div>
+    </div>
+  </div>
+
+  <!-- ROSTER -->
+  <div id="view-roster" class="view">
+    <div class="section-title">
+      <h2 id="roster-title">Officer Roster</h2>
+      <div class="btn-group">
+        <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px" onclick="showView('upload')">↑ Upload CSV</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:8px 14px" onclick="showView('add')">+ Add Officer</button>
+      </div>
+    </div>
+    <div id="roster-body"></div>
+  </div>
+
+  <!-- UPLOAD -->
+  <div id="view-upload" class="view">
+    <h2 style="font-size:20px;font-weight:600;margin-bottom:6px">Upload CSV Roster</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:24px">Upload your iSolved payroll export or any CSV with officer numbers and names. Duplicates are automatically skipped.</p>
+
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="event.preventDefault();this.classList.remove('drag-over');handleFile(event.dataTransfer.files[0])">
+      <div class="icon">📂</div>
+      <h3>Drag &amp; drop your CSV here</h3>
+      <p>or click to browse files</p>
+      <input type="file" id="file-input" accept=".csv" style="display:none" onchange="handleFile(this.files[0])" />
+    </div>
+
+    <div class="hint-box" style="margin-top:16px">
+      <strong>iSolved export works as-is:</strong><br>
+      <code>Key, #Name, E_Regular_Hours, …</code><br><br>
+      <strong>Simple roster CSV:</strong><br>
+      <code>Key,Name</code> &nbsp;→&nbsp; <code>1151,Jane Smith</code>
+    </div>
+
+    <div id="preview-section">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+          <div>
+            <div style="font-weight:600;margin-bottom:4px" id="preview-filename"></div>
+            <div style="font-size:12px;color:var(--muted)" id="preview-meta"></div>
+          </div>
+          <div style="text-align:right;font-size:13px">
+            <div class="col-green fw600" id="preview-add-count"></div>
+            <div class="col-muted fs12" id="preview-skip-count"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px">
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Officer # column</label>
+            <select id="key-col-select" onchange="updatePreview()" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:#FAFAF9"></select>
+          </div>
+          <div style="flex:1">
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Name column</label>
+            <select id="name-col-select" onchange="updatePreview()" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:#FAFAF9"></select>
+          </div>
+        </div>
+        <div id="preview-rows-wrap" style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="display:grid;grid-template-columns:100px 1fr 70px;padding:8px 14px;background:#F0EEE9;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.07em;text-transform:uppercase">
+            <div>Officer #</div><div>Name</div><div>Action</div>
+          </div>
+          <div id="preview-rows"></div>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn btn-secondary" onclick="resetUpload()">← Different File</button>
+        <button class="btn btn-primary" id="import-btn" onclick="confirmImport()">Import →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div id="view-history" class="view">
+    <div class="section-title">
+      <h2>Punch History</h2>
+      <select id="hist-filter" onchange="renderHistory()" style="border:1px solid var(--border);border-radius:7px;padding:7px 12px;font-size:13px;background:var(--card)">
+        <option value="all">All Officers</option>
+      </select>
+    </div>
+    <div id="history-body"></div>
+  </div>
+
+  <!-- ADD -->
+  <div id="view-add" class="view">
+    <h2 style="font-size:20px;font-weight:600;margin-bottom:20px">Add New Officer</h2>
+    <div class="form-card">
+      <div class="form-group">
+        <label>Officer Number (iSolved Key)</label>
+        <input class="mono" id="add-key" placeholder="e.g. 1151" />
+      </div>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input id="add-name" placeholder="e.g. Jane Smith" />
+      </div>
+      <div style="font-size:12px;color:var(--muted);background:#F0EEE9;border-radius:7px;padding:10px 14px;margin-bottom:4px">
+        💡 Officer Number must match the <strong>Key</strong> column in your iSolved export.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="showView('roster')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAdd()">Add to Roster →</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let STATE = { employees: [], punches: [] };
+let foundEmp = null;
+let csvRows = [], csvHeaders = [];
+let bufferStr = "", lastKeyMs = 0;
+
+const PALETTE = ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16"];
+function colorFor(key) { return PALETTE[Math.abs(parseInt(key)||0) % PALETTE.length]; }
+function initials(name) { return name.trim().split(/\s+/).map(p=>p[0]).join("").toUpperCase().slice(0,2); }
+function pad(n) { return String(n).padStart(2,"0"); }
+function fmtTime(iso) { if(!iso) return "—"; const d=new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function fmtDate(iso) { if(!iso) return "—"; return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
+function fmtDur(ms) { if(!ms||ms<0) return "—"; const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000); return h>0?`${h}h ${m}m`:`${m}m`; }
+
+function makeAvatar(name, key, size=34) {
+  const color = colorFor(key);
+  return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.32)}px;background:${color}22;color:${color}">${initials(name)}</div>`;
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+async function refreshData() {
+  try {
+    STATE = await api("GET", "/api/data");
+    renderAll();
+  } catch(e) {
+    console.error("Failed to fetch data", e);
+  }
+}
+
+// Auto-refresh every 5 seconds so all laptops stay in sync
+setInterval(refreshData, 5000);
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  const d = new Date();
+  document.getElementById("clock-display").textContent =
+    d.toLocaleTimeString("en-US", { hour12: false });
+}, 1000);
+
+// ── Barcode scanner ───────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if (document.activeElement.tagName === "INPUT" && document.activeElement.id !== "search-input") return;
+  const t = Date.now();
+  if (e.key === "Enter") {
+    const buf = bufferStr.trim();
+    if (buf.length >= 2 && document.getElementById("view-clock").classList.contains("active")) {
+      lookupEmployee(buf);
+      bufferStr = "";
+      if (document.activeElement.id === "search-input") document.getElementById("search-input").value = "";
+    }
+    bufferStr = "";
+  } else if (e.key.length === 1) {
+    if (t - lastKeyMs > 300) bufferStr = "";
+    bufferStr += e.key;
+    lastKeyMs = t;
+  }
+});
+
+// ── Views ─────────────────────────────────────────────────────────────────────
+function showView(id) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll("nav button").forEach((b,i) => {
+    const ids = ["clock","roster","upload","history","add"];
+    b.classList.toggle("active", ids[i] === id);
+  });
+  document.getElementById("view-" + id).classList.add("active");
+  if (id === "clock") document.getElementById("search-input").focus();
+  renderAll();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderAll() {
+  renderStats();
+  renderOnDuty();
+  renderRoster();
+  renderHistory();
+}
+
+function getActiveShift(empKey) {
+  return STATE.punches.find(p => p.empKey === empKey && !p.out);
+}
+
+function todayHours(empKey) {
+  const today = new Date().toDateString();
+  return STATE.punches
+    .filter(p => p.empKey === empKey && new Date(p.in).toDateString() === today)
+    .reduce((s,p) => { const out = p.out ? new Date(p.out) : new Date(); return s + (out - new Date(p.in)); }, 0);
+}
+
+function renderStats() {
+  const inCount = STATE.employees.filter(e => getActiveShift(e.key)).length;
+  document.getElementById("stat-total").textContent = STATE.employees.length;
+  document.getElementById("stat-in").textContent    = inCount;
+  document.getElementById("stat-out").textContent   = STATE.employees.length - inCount;
+}
+
+function renderOnDuty() {
+  const onDuty = STATE.employees.filter(e => getActiveShift(e.key));
+  const sec = document.getElementById("on-duty-section");
+  const grid = document.getElementById("on-duty-grid");
+  sec.style.display = onDuty.length ? "block" : "none";
+  grid.innerHTML = onDuty.map(emp => {
+    const active = getActiveShift(emp.key);
+    const elapsed = fmtDur(new Date() - new Date(active.in));
+    return `<div class="duty-card" onclick="selectEmployee('${emp.key}')">
+      ${makeAvatar(emp.name, emp.key)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${emp.name}</div>
+        <div class="mono fs11 col-green">${fmtTime(active.in)} · ${elapsed}</div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderRoster() {
+  const title = document.getElementById("roster-title");
+  const body  = document.getElementById("roster-body");
+  title.textContent = `Officer Roster (${STATE.employees.length})`;
+  if (!STATE.employees.length) {
+    body.innerHTML = `<div class="empty">No officers yet. <a onclick="showView('upload')">Upload a CSV roster →</a></div>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header roster-cols"><div>Officer #</div><div>Name</div><div>Status</div><div></div></div>
+      ${STATE.employees.map(emp => {
+        const active = getActiveShift(emp.key);
+        return `<div class="table-row roster-cols">
+          <div class="mono fs12 col-muted">#${emp.key}</div>
+          <div style="display:flex;align-items:center;gap:10px">${makeAvatar(emp.name,emp.key,30)}<span style="font-weight:500">${emp.name}</span></div>
+          <div class="fs12 fw600 ${active?'col-green':'col-muted'}">${active?`● On duty since ${fmtTime(active.in)}`:'○ Off duty'}</div>
+          <div style="text-align:right"><button onclick="removeEmployee('${emp.key}')" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:5px;padding:4px 10px;font-size:11px">Remove</button></div>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderHistory() {
+  const filter = document.getElementById("hist-filter");
+  const val    = filter.value;
+  // Rebuild options
+  const currentVal = val;
+  filter.innerHTML = `<option value="all">All Officers</option>` +
+    STATE.employees.map(e => `<option value="${e.key}" ${e.key===currentVal?'selected':''}>${e.name}</option>`).join("");
+
+  const records = [...STATE.punches]
+    .filter(p => currentVal === "all" || p.empKey === currentVal)
+    .sort((a,b) => new Date(b.in) - new Date(a.in));
+
+  const body = document.getElementById("history-body");
+  if (!records.length) { body.innerHTML = `<div class="empty">No records yet.</div>`; return; }
+  body.innerHTML = `
+    <div class="table-wrap">
+      <div class="table-header hist-cols"><div>Officer #</div><div>Name</div><div>Date</div><div>In</div><div>Out</div><div>Hours</div></div>
+      ${records.map(p => {
+        const dur = p.out ? fmtDur(new Date(p.out)-new Date(p.in)) : "—";
+        return `<div class="table-row hist-cols">
+          <div class="mono fs12 col-muted">#${p.empKey}</div>
+          <div style="font-weight:500">${p.empName}</div>
+          <div class="fs12 col-muted">${fmtDate(p.in)}</div>
+          <div class="mono fs12 col-green">${fmtTime(p.in)}</div>
+          <div class="mono fs12 ${p.out?'col-red':'col-amber'}">${p.out?fmtTime(p.out):'Active'}</div>
+          <div class="mono fs12">${dur}</div>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function onSearchInput() {
+  const q = document.getElementById("search-input").value.trim();
+  document.getElementById("search-btn").style.display = q ? "block" : "none";
+  if (!q) { document.getElementById("search-dropdown").style.display = "none"; return; }
+  const results = STATE.employees.filter(e =>
+    e.name.toLowerCase().includes(q.toLowerCase()) || String(e.key).includes(q)
+  ).slice(0,6);
+  const dd = document.getElementById("search-dropdown");
+  if (!results.length) { dd.style.display = "none"; return; }
+  dd.style.display = "block";
+  dd.innerHTML = results.map(emp => {
+    const active = getActiveShift(emp.key);
+    return `<div class="dropdown-row" onclick="selectEmployee('${emp.key}')">
+      ${makeAvatar(emp.name,emp.key)}
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">${emp.name}</div><div class="mono fs11 col-muted">#${emp.key}</div></div>
+      <div class="fs11 fw600 ${active?'col-green':'col-muted'}">${active?'● ON DUTY':'○ OFF DUTY'}</div>
+    </div>`;
+  }).join("");
+}
+
+function doSearch() {
+  const q = document.getElementById("search-input").value.trim();
+  lookupEmployee(q);
+}
+
+function lookupEmployee(query) {
+  const q = String(query).trim().toLowerCase();
+  if (!q) return;
+  let emp = STATE.employees.find(e => String(e.key) === q);
+  if (!emp) emp = STATE.employees.find(e => e.name.toLowerCase().includes(q));
+  if (emp) selectEmployee(emp.key);
+  else showToast(`No officer found for "${query}"`, "#EF4444");
+}
+
+function selectEmployee(key) {
+  foundEmp = STATE.employees.find(e => e.key === key);
+  if (!foundEmp) return;
+  document.getElementById("search-input").value = "";
+  document.getElementById("search-dropdown").style.display = "none";
+  document.getElementById("search-btn").style.display = "none";
+  renderFoundCard();
+}
+
+function renderFoundCard() {
+  if (!foundEmp) return;
+  const active = getActiveShift(foundEmp.key);
+  const card   = document.getElementById("found-card");
+  const color  = colorFor(foundEmp.key);
+  card.style.border = `2px solid ${active ? "var(--green)" : "var(--accent)"}`;
+  document.getElementById("found-avatar").innerHTML = initials(foundEmp.name);
+  document.getElementById("found-avatar").style.cssText += `;background:${color}22;color:${color}`;
+  document.getElementById("found-name").textContent = foundEmp.name;
+  document.getElementById("found-sub").innerHTML = `Officer #${foundEmp.key}` +
+    (active ? ` <span class="col-green">● On duty since ${fmtTime(active.in)}</span>` : "");
+  document.getElementById("found-today").innerHTML = `Today: <strong>${fmtDur(todayHours(foundEmp.key)) || "0m"}</strong>`;
+  const btn = document.getElementById("clock-action-btn");
+  btn.textContent  = active ? "⬛ End Shift" : "▶ Start Shift";
+  btn.style.background = active ? "var(--red)" : "var(--green)";
+  btn.style.color = "#fff";
+  btn.style.border = "none";
+  btn.style.borderRadius = "8px";
+  btn.style.padding = "12px 28px";
+  card.classList.add("active");
+}
+
+function clearFound() {
+  foundEmp = null;
+  document.getElementById("found-card").classList.remove("active");
+  document.getElementById("search-input").focus();
+}
+
+async function doClockAction() {
+  if (!foundEmp) return;
+  const active = getActiveShift(foundEmp.key);
+  if (active) {
+    await api("POST", "/api/punches/out", { empKey: foundEmp.key });
+    showToast(`${foundEmp.name} ended shift`, "#D97706");
+  } else {
+    await api("POST", "/api/punches/in", { empKey: foundEmp.key, empName: foundEmp.name });
+    showToast(`${foundEmp.name} started shift`, "#10B981");
+  }
+  clearFound();
+  await refreshData();
+}
+
+// ── Roster actions ────────────────────────────────────────────────────────────
+async function removeEmployee(key) {
+  if (!confirm("Remove this officer from the roster?")) return;
+  await api("DELETE", `/api/employees/${key}`);
+  await refreshData();
+}
+
+async function submitAdd() {
+  const key  = document.getElementById("add-key").value.trim();
+  const name = document.getElementById("add-name").value.trim();
+  if (!key || !name) { showToast("Both fields are required", "#EF4444"); return; }
+  const r = await api("POST", "/api/employees", { key, name });
+  if (r.error) { showToast(r.error, "#EF4444"); return; }
+  document.getElementById("add-key").value = "";
+  document.getElementById("add-name").value = "";
+  showToast(`${name} added`, "#3B82F6");
+  await refreshData();
+  showView("roster");
+}
+
+// ── CSV Upload ────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return { headers: [], rows: [] };
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^["']|["']$/g,""));
+  const rows = lines.slice(1).map(line => {
+    const cols=[]; let cur="",inQ=false;
+    for(const ch of line){if(ch==='"'){inQ=!inQ;continue;}if(ch===","&&!inQ){cols.push(cur.trim());cur="";continue;}cur+=ch;}
+    cols.push(cur.trim());
+    const row={}; headers.forEach((h,i)=>{ row[h]=cols[i]??""; });
+    return row;
+  }).filter(r=>Object.values(r).some(v=>v));
+  return { headers, rows };
+}
+
+function handleFile(file) {
+  if (!file || !file.name.endsWith(".csv")) { showToast("Please select a .csv file", "#EF4444"); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const { headers, rows } = parseCSV(e.target.result);
+    if (!rows.length) { showToast("CSV appears empty", "#EF4444"); return; }
+    csvHeaders = headers; csvRows = rows;
+    // Detect columns
+    const keyCol  = headers.find(h=>/^key$/i.test(h)||/emp.*(num|id|#)|badge/i.test(h)) || headers[0];
+    const nameCol = headers.find(h=>/name/i.test(h)&&!/labor|dept/i.test(h)) || headers[1];
+    // Populate selects
+    ["key-col-select","name-col-select"].forEach((id, i) => {
+      const sel = document.getElementById(id);
+      sel.innerHTML = headers.map(h=>`<option value="${h}" ${h===(i===0?keyCol:nameCol)?'selected':''}>${h}</option>`).join("");
+    });
+    document.getElementById("preview-filename").textContent = `📄 ${file.name}`;
+    document.getElementById("drop-zone").style.display = "none";
+    document.querySelector(".hint-box").style.display = "none";
+    document.getElementById("preview-section").style.display = "block";
+    updatePreview();
+  };
+  reader.readAsText(file);
+}
+
+function updatePreview() {
+  const keyCol  = document.getElementById("key-col-select").value;
+  const nameCol = document.getElementById("name-col-select").value;
+  let willAdd=0, willSkip=0;
+  csvRows.forEach(row => {
+    const key=String(row[keyCol]||"").trim(), name=String(row[nameCol]||"").trim();
+    if(!key||!name) return;
+    STATE.employees.find(e=>String(e.key)===key) ? willSkip++ : willAdd++;
+  });
+  document.getElementById("preview-meta").textContent = `${csvRows.length} rows · Key: ${keyCol} · Name: ${nameCol}`;
+  document.getElementById("preview-add-count").textContent = `✓ ${willAdd} will be added`;
+  document.getElementById("preview-skip-count").textContent = willSkip ? `${willSkip} duplicates skipped` : "";
+  document.getElementById("import-btn").textContent = `Import ${willAdd} Officer${willAdd!==1?"s":""} →`;
+  document.getElementById("import-btn").disabled = willAdd === 0;
+  document.getElementById("import-btn").style.background = willAdd > 0 ? "var(--accent)" : "#ccc";
+
+  const rows = csvRows.slice(0,10).map(row => {
+    const key=String(row[keyCol]||"").trim(), name=String(row[nameCol]||"").trim();
+    const isDup = !!STATE.employees.find(e=>String(e.key)===key);
+    return `<div style="display:grid;grid-template-columns:100px 1fr 70px;padding:9px 14px;border-top:1px solid var(--border);font-size:12px;align-items:center;opacity:${isDup?.4:1}">
+      <div class="mono col-muted">#${key}</div><div>${name}</div>
+      <div class="fs11 fw600 ${isDup?'col-muted':'col-green'}">${isDup?'skip':'add'}</div>
+    </div>`;
+  }).join("");
+  const more = csvRows.length > 10 ? `<div style="padding:9px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);font-style:italic">… and ${csvRows.length-10} more</div>` : "";
+  document.getElementById("preview-rows").innerHTML = rows + more;
+}
+
+async function confirmImport() {
+  const keyCol  = document.getElementById("key-col-select").value;
+  const nameCol = document.getElementById("name-col-select").value;
+  const employees = csvRows.map(row => ({
+    key: String(row[keyCol]||"").trim(),
+    name: String(row[nameCol]||"").trim()
+  })).filter(e => e.key && e.name);
+  const r = await api("POST", "/api/employees/bulk", { employees });
+  showToast(`Imported ${r.added} officers${r.skipped?`, ${r.skipped} skipped`:""}`, "#3B82F6");
+  resetUpload();
+  await refreshData();
+  showView("roster");
+}
+
+function resetUpload() {
+  csvRows=[]; csvHeaders=[];
+  document.getElementById("drop-zone").style.display = "block";
+  document.querySelector(".hint-box").style.display = "block";
+  document.getElementById("preview-section").style.display = "none";
+  document.getElementById("file-input").value = "";
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function exportISolved() {
+  window.location.href = "/api/export/isolved";
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, color="#10B981") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.background = color; t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display="none"; }, 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+refreshData();
+</script>
+</body>
+</html>
